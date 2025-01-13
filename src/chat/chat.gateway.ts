@@ -15,10 +15,16 @@ import { UserService } from 'src/user/user.service';
 import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'crypto';
 
+interface IPayload {
+  receiverId: string;
+  senderId: string;
+}
+
 @WebSocketGateway({ cors: true })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
-  private activeUsers: Map<string, string> = new Map(); // Map<SocketId, UserId>
+  private activeUsers: Map<string, { userId: string; activeChatId?: string }> =
+    new Map(); // Map<SocketId, UserId>
   constructor(
     private jwtService: JwtService,
     private readonly chatService: ChatService,
@@ -33,7 +39,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const decoded = this.extractPayload(token);
       const user = await this.user.getById(decoded.id);
       if (!user) throw new Error('Unauthorized');
-      this.activeUsers.set(client.id, user.id);
+      this.activeUsers.set(client.id, { userId: user.id });
       console.log('this.ac', this.activeUsers);
     } catch (error) {
       console.log('Ошибка авторизации:', error);
@@ -42,6 +48,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   handleDisconnect(client: any) {
+    const userData = this.activeUsers.get(client.id);
+    if (userData) {
+      console.log(`User ${userData.userId} disconnected`);
+    }
     this.activeUsers.delete(client.id);
   }
 
@@ -75,14 +85,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       chatId,
     });
 
-    for (const [socketId, userId] of this.activeUsers.entries()) {
-      if (userId === payload.receiverId) {
+    // Отправляем сообщение только если активный чат совпадает
+    for (const [socketId, userData] of this.activeUsers.entries()) {
+      if (
+        userData.userId === payload.receiverId &&
+        userData.activeChatId === chatId
+      ) {
         this.server.to(socketId).emit('receiveMessage', message);
         break;
       }
     }
-    for (const [socketId, userId] of this.activeUsers.entries()) {
-      if (userId === payload.senderId) {
+
+    // Обновляем интерфейс отправителя
+    for (const [socketId, userData] of this.activeUsers.entries()) {
+      if (userData.userId === payload.senderId) {
         this.server.to(socketId).emit('receiveMessage', message);
       }
     }
@@ -98,6 +114,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     );
 
     client.emit('messagesHistory', messages);
+  }
+
+  @SubscribeMessage('joinChat')
+  joinChat(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() { receiverId, senderId }: IPayload,
+  ) {
+    const userData = this.activeUsers.get(client.id);
+    const chatId = this.getChatId(receiverId, senderId);
+    if (userData) {
+      this.activeUsers.set(client.id, { ...userData, activeChatId: chatId });
+      console.log(`User ${userData.userId} joined chat ${chatId}`);
+    }
   }
 
   @SubscribeMessage('findAllChat')
