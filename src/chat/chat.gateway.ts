@@ -35,12 +35,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const token = client.handshake.headers.authorization;
       if (!token) throw new Error('Unauthorized');
-      console.log('token', token.split(' ')[1]);
       const decoded = this.extractPayload(token);
       const user = await this.user.getById(decoded.id);
       if (!user) throw new Error('Unauthorized');
       this.activeUsers.set(client.id, { userId: user.id });
-      console.log('this.ac', this.activeUsers);
     } catch (error) {
       console.log('Ошибка авторизации:', error);
       //   //   client.disconnect();
@@ -49,9 +47,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: any) {
     const userData = this.activeUsers.get(client.id);
-    if (userData) {
-      console.log(`User ${userData.userId} disconnected`);
-    }
+
     this.activeUsers.delete(client.id);
   }
 
@@ -60,7 +56,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() dto: CreateChatDto,
   ) {
-    console.log('dto', dto);
     const chatId = this.getChatId(dto.receiverId, dto.senderId);
     const existetChat = await this.chatService.checkIsChatExsit(chatId);
     if (!existetChat?.id) {
@@ -85,7 +80,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       chatId,
     });
 
-    // Отправляем сообщение только если активный чат совпадает
     for (const [socketId, userData] of this.activeUsers.entries()) {
       if (
         userData.userId === payload.receiverId &&
@@ -96,10 +90,34 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
 
-    // Обновляем интерфейс отправителя
     for (const [socketId, userData] of this.activeUsers.entries()) {
       if (userData.userId === payload.senderId) {
         this.server.to(socketId).emit('receiveMessage', message);
+      }
+    }
+  }
+
+  @SubscribeMessage('sendMessageGroup')
+  async handleMessageGrup(
+    client: Socket,
+    payload: { receiverId: string; text: string; senderId: string },
+  ) {
+    const chatId = payload.receiverId;
+    const message = await this.chatService.createMessageGroup({
+      text: payload.text,
+      senderId: payload.senderId,
+      chatGroupId: chatId,
+    });
+
+    for (const [socketId, userData] of this.activeUsers.entries()) {
+      if (userData.userId !== payload.senderId) {
+        this.server.to(socketId).emit('receiveMessageG', message);
+      }
+    }
+
+    for (const [socketId, userData] of this.activeUsers.entries()) {
+      if (userData.userId === payload.senderId) {
+        this.server.to(socketId).emit('receiveMessageG', message);
       }
     }
   }
@@ -114,6 +132,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     );
 
     client.emit('messagesHistory', messages);
+  }
+
+  @SubscribeMessage('fetchMessagesG')
+  async fetchMessagesG(client: Socket, payload: { chatId: string }) {
+    const messages = await this.chatService.getMessagesByGroupChatId(
+      payload.chatId,
+    );
+    console.log('messages', messages);
+    client.emit('messagesHistoryG', messages);
   }
 
   @SubscribeMessage('joinChat')

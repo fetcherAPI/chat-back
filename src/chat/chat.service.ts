@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { CreateChatDto, CreateMessageDto } from './dto/create-chat.dto';
+import {
+  CreateChatDto,
+  CreateMessageDto,
+  CreateMessageGroupDto,
+} from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
 import { PrismaService } from 'src/prisma.service';
+import { CreateChatGroupDto } from 'src/chat-group/dto/create-chat-group.dto';
 
 @Injectable()
 export class ChatService {
@@ -28,9 +33,18 @@ export class ChatService {
   }
 
   async createMessage(dto: CreateMessageDto) {
+    console.log('dto', dto);
     const message = await this.prisma.message.create({
       data: dto,
       include: { sender: true, receiver: true },
+    });
+    return message;
+  }
+
+  async createMessageGroup(dto: CreateMessageGroupDto) {
+    const message = await this.prisma.groupMessage.create({
+      data: dto,
+      include: { sender: true },
     });
     return message;
   }
@@ -53,6 +67,23 @@ export class ChatService {
         createdAt: 'asc',
       },
     });
+    return messages;
+  }
+
+  async getMessagesByGroupChatId(chatId: string) {
+    console.log('chatId', chatId);
+    const messages = await this.prisma.groupMessage.findMany({
+      where: {
+        chatGroupId: chatId,
+      },
+      include: {
+        sender: true,
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
+
     return messages;
   }
 

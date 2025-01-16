@@ -9,3 +9,9 @@ export class CreateMessageDto {
   senderId: string;
   chatId: string;
 }
+
+export class CreateMessageGroupDto {
+  text: string;
+  senderId: string;
+  chatGroupId: string;
+}
